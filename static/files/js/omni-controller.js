@@ -1,5 +1,4 @@
 /* globals app,window */
-
 app.controller("OmniController", function($scope, $rootScope, storage, api, search) {
   $rootScope.omni = $scope;
   $scope.inputs = {
@@ -23,7 +22,7 @@ app.controller("OmniController", function($scope, $rootScope, storage, api, sear
       return;
     //filter
     for(var id in searchProviders) {
-      if(/-item$/.test(id)) continue;
+      if(/\/item$/.test(id)) continue;
       $scope.providers[id] = searchProviders[id];
     }
     $scope.parse();
@@ -136,7 +135,6 @@ app.controller("OmniController", function($scope, $rootScope, storage, api, sear
   };
 
   $scope.submitSearch = function() {
-
     //lookup provider's origin
     var provider = $scope.state.SearchProviders[$scope.inputs.provider];
     if(!provider) return;
@@ -151,8 +149,12 @@ app.controller("OmniController", function($scope, $rootScope, storage, api, sear
       for (var i = 0; i < results.length; i++) {
         var r = results[i];
         //add origin to path to create urls
-        if(r.path && /^\//.test(r.path)) {
+        if(r.url && /^\//.test(r.url)) {
+          r.path = r.url;
           r.url = origin + r.path;
+        }
+        if(r.torrent && /^\//.test(r.torrent)) {
+          r.torrent = origin + r.torrent;
         }
         $scope.results.push(r);
       }
@@ -162,19 +164,24 @@ app.controller("OmniController", function($scope, $rootScope, storage, api, sear
   };
 
   $scope.submitSearchItem = function(result) {
-    //if search item has magnet, download now!
+    //if search item has magnet/torrent, download now!
     if (result.magnet) {
       api.magnet(result.magnet);
       return;
+    } else if (result.torrent) {
+      api.url(result.torrent);
+      return;
     }
-    //else, look it up via url
+    //else, look it up via url path
     if (!result.path)
-      return $scope.omnierr = "No URL found";
+      return $scope.omnierr = "No item URL found";
 
     search.one($scope.inputs.provider, result.path).then(function(resp) {
       var data = resp.data;
       if (!data)
         return $scope.omnierr = "No response";
+      if (data.torrent)
+        return api.url(data.torrent);
       var magnet;
       if (data.magnet) {
         magnet = data.magnet;
