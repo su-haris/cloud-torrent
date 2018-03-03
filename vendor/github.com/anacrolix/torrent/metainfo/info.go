@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,12 +14,14 @@ import (
 
 // The info dictionary.
 type Info struct {
-	PieceLength int64      `bencode:"piece length"`
-	Pieces      []byte     `bencode:"pieces"`
-	Name        string     `bencode:"name"`
-	Length      int64      `bencode:"length,omitempty"`
-	Private     *bool      `bencode:"private,omitempty"`
-	Files       []FileInfo `bencode:"files,omitempty"`
+	PieceLength int64  `bencode:"piece length"`
+	Pieces      []byte `bencode:"pieces"`
+	Name        string `bencode:"name"`
+	Length      int64  `bencode:"length,omitempty"`
+	Private     *bool  `bencode:"private,omitempty"`
+	// TODO: Document this field.
+	Source string     `bencode:"source,omitempty"`
+	Files  []FileInfo `bencode:"files,omitempty"`
 }
 
 // This is a helper that sets Files and Pieces from a root path and its
@@ -41,7 +42,6 @@ func (info *Info) BuildFromFilePath(root string) (err error) {
 			return nil
 		}
 		relPath, err := filepath.Rel(root, path)
-		log.Println(relPath, err)
 		if err != nil {
 			return fmt.Errorf("error getting relative path: %s", err)
 		}
@@ -126,9 +126,6 @@ func (info *Info) TotalLength() (ret int64) {
 }
 
 func (info *Info) NumPieces() int {
-	if len(info.Pieces)%20 != 0 {
-		panic(len(info.Pieces))
-	}
 	return len(info.Pieces) / 20
 }
 

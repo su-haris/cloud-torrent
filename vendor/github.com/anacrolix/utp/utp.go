@@ -12,6 +12,7 @@
 package utp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -30,7 +31,7 @@ const (
 	backlog = 50
 
 	// IPv6 min MTU is 1280, -40 for IPv6 header, and ~8 for fragment header?
-	minMTU = 1438
+	minMTU = 1438 // Why?
 	// uTP header of 20, +2 for the next extension, and an optional selective
 	// ACK.
 	maxHeaderSize  = 20 + 2 + (((maxUnackedInbound+7)/8)+3)/4*4
@@ -107,10 +108,9 @@ func init() {
 }
 
 var (
-	errClosed                   = errors.New("closed")
-	errNotImplemented           = errors.New("not implemented")
-	errTimeout        net.Error = timeoutError{"i/o timeout"}
-	errAckTimeout               = timeoutError{"timed out waiting for ack"}
+	errClosed               = errors.New("closed")
+	errTimeout    net.Error = timeoutError{"i/o timeout"}
+	errAckTimeout           = timeoutError{"timed out waiting for ack"}
 )
 
 type timeoutError struct {
@@ -157,26 +157,27 @@ type recv struct {
 	Type st
 }
 
-func packetDebugString(h *header, payload []byte) string {
-	return fmt.Sprintf("%s->%d: %q", h.Type, h.ConnID, payload)
-}
-
 // Attempt to connect to a remote uTP listener, creating a Socket just for
 // this connection.
 func Dial(addr string) (net.Conn, error) {
-	return DialTimeout(addr, 0)
+	return DialContext(context.Background(), addr)
 }
 
 // Same as Dial with a timeout parameter. Creates a Socket just for the
 // connection, which will be closed with the Conn is. To reuse another Socket,
 // see Socket.Dial.
-func DialTimeout(addr string, timeout time.Duration) (nc net.Conn, err error) {
+func DialContext(ctx context.Context, addr string) (nc net.Conn, err error) {
 	s, err := NewSocket("udp", ":0")
 	if err != nil {
 		return
 	}
 	defer s.Close()
-	return s.DialTimeout(addr, timeout)
+	return s.DialContext(ctx, addr)
+}
+
+// Listen creates listener Socket to accept incoming connections.
+func Listen(laddr string) (net.Listener, error) {
+	return NewSocket("udp", laddr)
 }
 
 func nowTimestamp() uint32 {
@@ -189,9 +190,4 @@ func seqLess(a, b uint16) bool {
 	} else {
 		return a < b && a >= b-0x8000
 	}
-}
-
-type packet struct {
-	h       header
-	payload []byte
 }

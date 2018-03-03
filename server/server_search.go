@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -26,7 +27,8 @@ func (s *Server) fetchSearchConfigLoop() {
 	}
 }
 
-var currentConfig = defaultSearchConfig
+var fetches = 0
+var currentConfig, _ = normalize(defaultSearchConfig)
 
 func (s *Server) fetchSearchConfig() error {
 	resp, err := http.Get(searchConfigURL)
@@ -38,6 +40,11 @@ func (s *Server) fetchSearchConfig() error {
 	if err != nil {
 		return err
 	}
+	newConfig, err = normalize(newConfig)
+	if err != nil {
+		return err
+	}
+	fetches++
 	if bytes.Equal(currentConfig, newConfig) {
 		return nil //skip
 	}
@@ -45,28 +52,23 @@ func (s *Server) fetchSearchConfig() error {
 		return err
 	}
 	s.state.SearchProviders = s.scraper.Config
-	s.state.Update()
-	log.Printf("Loaded new search providers")
+	s.state.Push()
 	currentConfig = newConfig
+	log.Printf("Loaded new search providers")
 	return nil
+}
+
+func normalize(input []byte) ([]byte, error) {
+	output := bytes.Buffer{}
+	if err := json.Indent(&output, input, "", "  "); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
 }
 
 //see github.com/jpillora/scraper for config specification
 //cloud-torrent uses "<id>-item" handlers
 var defaultSearchConfig = []byte(`{
-	"et": {
-		"name": "ExtraTorrent",
-		"url": "https://extratorrent.cc/search/?search={{query}}&s_cat=&pp=&srt=seeds&order=desc&page={{page:1}}",
-		"list": "table.tl tr.tlr",
-		"result": {
-			"name":["td.tli > a"],
-			"torrent": ["td:nth-child(1) a","@href","s/torrent_download/download/"],
-			"url": ["td.tli > a","@href"],
-			"size": "td:nth-child(5)",
-			"seeds": "td.sy",
-			"peers": "td.ly"
-		}
-	},
 	"zq": {
 		"name": "Zooqle",
 		"url": "https://zooqle.com/search?q={{query}}&pg={{page:1}}&s=ns&v=t&sd=d",
@@ -98,7 +100,7 @@ var defaultSearchConfig = []byte(`{
 		"result": {
 			"name": "td:nth-child(2) a",
 			"url": ["td:nth-child(2) a", "@href"],
-			"magent": ["td:nth-child(3) a:nth-child(1)", "@href"],
+			"magnet": ["td:nth-child(3) a:nth-child(1)", "@href"],
 			"size": "td:nth-child(4)",
 			"seeds": "td:nth-child(6)"
 		}
@@ -119,7 +121,7 @@ var defaultSearchConfig = []byte(`{
 		"name": "1337X (Item)",
 		"url": "http://1337x.to{{item}}",
 		"result": {
-			"magnet": ["a.btn-magnet","@href"]
+			"magnet": [".download-links-dontblock a.btn","@href"]
 		}
 	},
 	"abb": {
@@ -139,6 +141,19 @@ var defaultSearchConfig = []byte(`{
 		"result": {
 			"infohash": "/td>([a-f0-9]+)</",
 			"tracker": "table tr td:nth-child(2)"
+		}
+	},
+	"tpb": {
+		"name": "The Pirate Bay",
+		"url": "https://thepiratebay.org/search/{{query}}/{{page:0}}/7//",
+		"list": "#searchResult > tbody > tr",
+		"result": {
+			"name":"a.detLink",
+			"path":["a.detLink","@href"],
+			"magnet": ["a[title=Download\\ this\\ torrent\\ using\\ magnet]","@href"],
+			"size": "/Size (\\d+(\\.\\d+).[KMG]iB)/",
+			"seeds": "td:nth-child(3)",
+			"peers": "td:nth-child(4)"
 		}
 	}
 }`)

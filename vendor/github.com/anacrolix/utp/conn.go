@@ -36,7 +36,6 @@ type Conn struct {
 	synAcked  bool // Syn is acked by the acceptor. Initiator also tracks it.
 	gotFin    missinggo.Event
 	wroteFin  missinggo.Event
-	finAcked  bool
 	err       error
 	closed    missinggo.Event
 	destroyed missinggo.Event
@@ -99,8 +98,6 @@ func (c *Conn) wndSize() uint32 {
 }
 
 func (c *Conn) makePacket(_type st, connID, seqNr uint16, payload []byte) (p []byte) {
-	// Always selectively ack the first 64 packets. Don't bother with rest for
-	// now.
 	var selAck selectiveAckBitmask
 	for i := 1; i < len(c.inbound); i++ {
 		if c.inbound[i].seen {
@@ -116,11 +113,17 @@ func (c *Conn) makePacket(_type st, connID, seqNr uint16, payload []byte) (p []b
 		WndSize:       c.wndSize(),
 		Timestamp:     c.timestamp(),
 		TimestampDiff: c.lastTimeDiff,
-		// Currently always send an 8 byte selective ack.
-		Extensions: []extensionField{{
+	}
+	if len(selAck.Bytes) != 0 {
+		// The spec requires the number of bytes for a selective ACK to be at
+		// least 4, and a multiple of 4.
+		if len(selAck.Bytes)%4 != 0 {
+			panic(len(selAck.Bytes))
+		}
+		h.Extensions = append(h.Extensions, extensionField{
 			Type:  extensionTypeSelectiveAck,
 			Bytes: selAck.Bytes,
-		}},
+		})
 	}
 	p = sendBufferPool.Get().([]byte)[:0:minMTU]
 	n := h.Marshal(p)
@@ -229,15 +232,6 @@ func (c *Conn) latency() (ret time.Duration) {
 	return
 }
 
-func (c *Conn) numUnackedSends() (num int) {
-	for _, s := range c.unackedSends {
-		if !s.acked.IsSet() {
-			num++
-		}
-	}
-	return
-}
-
 func (c *Conn) sendState() {
 	c.send(stState, c.send_id, nil, c.seq_nr)
 	sentStatePackets.Add(1)
@@ -262,7 +256,9 @@ func (c *Conn) ack(nr uint16) {
 	}
 	i := nr - c.lastAck - 1
 	if int(i) >= len(c.unackedSends) {
-		log.Printf("got ack ahead of syn (%x > %x)", nr, c.seq_nr-1)
+		// Remote has acknowledged receipt of packets we haven't even sent.
+		acksReceivedAheadOfSyn.Add(1)
+		// log.Printf("got ack ahead of syn (%x > %x)", nr, c.seq_nr-1)
 		return
 	}
 	s := c.unackedSends[i]
